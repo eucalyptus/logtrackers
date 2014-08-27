@@ -1,0 +1,199 @@
+#!/usr/bin/python
+import sys
+import os
+from subprocess import Popen, PIPE
+from datetime import datetime, date, time
+from argparse import ArgumentParser
+from tabulate import tabulate
+
+def log_dir(rootdir='/'):
+    logdir = rootdir+'/var/log/eucalyptus';
+    if not os.access(logdir, os.F_OK):
+        return None
+    return logdir
+
+def log_files(directory='/var/log/eucalyptus'):
+    candidates = []
+    candidates.append(directory+"/cloud-requests.log")
+    for idx in range(0, 10):
+        candidates.append(directory+"/cloud-requests.log."+str(idx))
+    files = [] 
+    for f in candidates:
+        if os.access(f, os.F_OK):
+            files.append(f) 
+    return files
+
+def cmd_output(args=[]):
+    p = Popen(args, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    out, err = p.communicate()
+
+    if p.returncode == 0:
+        if out and len(out)>0: return out
+        else: return err
+    else:
+        raise Exception("return code: %d" % p.returncode)
+
+def has_access_key():
+    try:
+        return os.environ['EC2_ACCESS_KEY']!=None
+    except KeyError, err:
+        return False
+
+def has_secret_key():
+    try:
+        return os.environ['EC2_SECRET_KEY']!=None
+    except KeyError, err:
+        return False
+
+def get_euca_version():
+    return cmd_output(['euca-version'])
+
+def account_id(account):
+    output = cmd_output(['euare-accountlist'])
+    for line in output.split('\n'):
+        tokens = line.split()
+        if len(tokens) < 2:
+            continue
+        if tokens[0] == account:
+            return tokens[1]
+    return None
+
+def get_lines(log_files=[], account=None, user=None, name=None, service=None, limit=None, include_response=False):
+    lines = []
+    num_lines =  1
+    sorted_log_files = sorted(log_files, key=lambda log : log)
+    for f in sorted_log_files:
+        cmdline = "tac %s" % f
+        output = ""
+        try:
+            output = cmd_output(cmdline.split())
+        except Exception, err:
+            warn("no record is found: %s" % err)
+
+        for l in output.split('\n'):
+            if l.find(account)<0:
+                continue
+            if user and l.find(user)<0:
+                continue
+            if name and l.find(name)<0:
+                continue
+
+            if service:
+                tokens = l.split()
+                if len(tokens) < 10 or tokens[9] != service:
+                    continue 
+
+            if not include_response and l.find("ResponseType") > 0:
+                continue
+            lines.append(l)
+
+            num_lines=num_lines+1
+            if limit and num_lines > limit:
+                break
+        if limit and num_lines > limit:
+            break
+    return lines
+
+def make_table(lines):
+    #headers=["DATE", "SERVICE", "REQUEST", "ID"]
+    #rows = [ headers ]
+    rows = []
+
+    for line in lines:
+        row = []
+        tokens = line.split() 
+        dt_str = " ".join(tokens[0:5])
+        row.append(dt_str)
+        svc = tokens[9]
+        row.append(svc)
+        req = tokens[10]
+        req = req.replace("Type","")
+        row.append(req)
+        req_id = tokens[5]
+        row.append(req_id[0:8])
+        rows.append(row)
+
+    return rows
+
+def get_ids(lines):
+    ids = []
+    for line in lines:
+        tokens = line.split()
+        req_id = tokens[5]
+        ids.append(req_id[0:8])
+    return ids
+
+def info(message):
+    print "info: %s" % message
+def warn(message):
+    print "warning: %s" % message
+
+def log_and_exit(message):
+    print message;
+    exit(1)
+
+if __name__ == "__main__":
+    parser = ArgumentParser(prog='euca-req-list', description='List Eucalyptus request history')
+    parser.add_argument('account', nargs=1, help='account to search for the history')
+    parser.add_argument('-u', '--user', nargs=1, default=['admin'], help='username to search for the history (default:admin)')
+    parser.add_argument('-n', '--name', nargs=1, help='name of the request to search for (e.g., RunInstances, Describe)')
+    parser.add_argument('-s', '--service', nargs=1, help='name of the service (compute, objectstorage, euare, autoscaling, loadbalancing, cloudwatch)')
+    parser.add_argument('-l', '--limit', nargs=1, help='number of entries to return')
+    parser.add_argument('--show-id', action="store_true", help='print only the IDs after search')
+    args = parser.parse_args()
+
+    if len(args.account) != 1:
+        log_and_exit("One account must be specified")
+
+    root_dir = os.environ['EUCALYPTUS']
+    if not root_dir or len(root_dir) == 0:
+        root_dir = '/'
+
+    if not log_dir(root_dir):
+       log_and_exit("Unable to find log directory; make sure EUCALYPTUS is set") 
+    
+    files = log_files(log_dir(root_dir))
+    if not files or len(files)==0:
+        log_and_exit("Unable to find log files; make sure EUCALYPTUS is set") 
+
+    if not (has_access_key() or has_secret_key()):
+        log_and_exit("Access or secret key is not found; make sure eucarc is sourced")
+
+    euca_version = get_euca_version()
+
+    if not euca_version or len(euca_version) == 0:
+        log_and_exit("Unable to call euca2ools; make sure euca2ools directory is in the PATH")
+
+    acct_id = account_id(args.account[0])
+    if not acct_id or len(acct_id) == 0:
+        log_and_exit("Unable to find the account: %s" % args.account[0])
+
+    user=None
+    if args.user and len(args.user) > 0:
+        user = "user/%s" % args.user[0]
+
+    name=None
+    if args.name and len(args.name) > 0:
+        name = args.name[0]
+
+    service=None
+    if args.service and len(args.service) > 0:
+        service = args.service[0]
+
+    limit=None
+    try:
+        if args.limit and len(args.limit) > 0:
+            limit = int(args.limit[0])
+    except Exception, err:
+        log_and_exit("limit must be a number type")
+    lines = get_lines(log_files=files, account=acct_id, user=user, name=name, service=service, limit=limit)
+    if not lines or len(lines) ==0:
+        exit(0)
+
+    if args.show_id:
+        ids = get_ids(lines)
+        for id in ids:
+            print id 
+    else:
+        table = make_table(lines)
+        print tabulate(table, headers=["DATE", "SERVICE", "REQUEST", "ID"])
