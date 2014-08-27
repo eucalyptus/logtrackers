@@ -1,0 +1,135 @@
+#!/usr/bin/python
+import sys
+import os
+from subprocess import Popen, PIPE
+from datetime import datetime, date, time
+from argparse import ArgumentParser
+from tabulate import tabulate
+import tempfile
+import shutil
+
+def has_access_key():
+    try:
+        return os.environ['EC2_ACCESS_KEY']!=None
+    except KeyError, err:
+        return False
+
+def has_secret_key():
+    try:
+        return os.environ['EC2_SECRET_KEY']!=None
+    except KeyError, err:
+        return False
+
+def cmd_output(args=[]):
+    p = Popen(args, stdin=None, stdout=PIPE, stderr=PIPE)
+    out, err = p.communicate()
+
+    if p.returncode == 0:
+        if out and len(out)>0: return out
+        else: return err
+    else:
+        raise Exception("return code: %d" % p.returncode)
+
+def get_euca_version():
+    return cmd_output(['euca-version'])
+
+def info(message):
+    print "info: %s" % message
+
+def warn(message):
+    print "warning: %s" % message
+
+def log_and_exit(message):
+    print message;
+    exit(1)
+
+def is_ipaddr(text):
+    if not text or len(text) < 7:
+        return False
+    tokens = text.split('.')
+    if not tokens or len(tokens) != 4:
+        return False
+    for token in tokens:
+        try:
+            if int(token) < 0 or int(token) > 255:
+                return False
+        except Exception, err:
+            return False
+    return True
+
+def get_service_address(service):
+    cmdline = "euca-describe-%s" % service
+    addresses = []
+    output=''
+    try:
+        output = cmd_output([cmdline]) 
+        if not output or len(output) == 0:
+            log_and_exit("%s failed" % cmdline)
+    except Exception, err:
+            log_and_exit("%s failed" % cmdline)
+    lines = output.split('\n')
+    addresses = []
+    for line in lines:
+        tokens = line.split()
+        if len(tokens) > 0:
+            addresses.extend([x for x in tokens if is_ipaddr(x)])
+    return addresses
+
+def copy_log_files(address, euca_root, dest):
+    log_files = [ ]
+    if not os.access(dest, os.F_OK): 
+        log_and_exit("Directory %s does not exist" % dest)
+    cmdline = "scp %s:%s/var/log/eucalyptus/*-tracking.log* %s" % (address, euca_root, dest)
+    try:
+        p = Popen(cmdline.split(),stdin=None, stdout=PIPE, stderr=PIPE)
+        out, err = p.communicate()
+        if p.returncode != 0:
+            raise Exception("return code: %d" % p.returncode)   
+    except Exception, err:
+        return False
+    return True
+if __name__ == "__main__":
+    parser = ArgumentParser(prog='euca-req-track', description='List Eucalyptus request history')
+    parser.add_argument('id', nargs=1, help='request ID to track')
+    parser.add_argument('-d', '--directory', nargs=1, help='directory containing the aggregated logs')
+    parser.add_argument('--ssh', action="store_true", help='ssh to remote components to aggregate logs')
+    args = parser.parse_args()
+
+    if len(args.id) != 1:
+        log_and_exit("Request ID must be specified")
+
+    root_dir = os.environ['EUCALYPTUS']
+    if not root_dir or len(root_dir) == 0:
+        root_dir = '/'
+
+    if args.directory and len(args.directory) > 0:
+        pass
+    elif args.ssh:
+        services=['compute','autoscaling','loadbalancing','object-storage-gateways','clusters','euare','nodes','storage-controllers' ]
+        if not (has_access_key() or has_secret_key()):
+            log_and_exit("Access or secret key is not found; make sure eucarc is sourced")
+
+        euca_version = get_euca_version()
+        if not euca_version or len(euca_version) == 0:
+            log_and_exit("Unable to call euca2ools; make sure euca2ools directory is in the PATH")
+        addresses = set()
+        for service in services:
+            for addr in get_service_address(service):
+                addresses.add(addr)
+        copied=True
+        tmpdir = tempfile.mkdtemp() + "/"
+        for addr in addresses:
+            addrtmp = tempfile.mkdtemp() + "/"
+            if not copy_log_files(addr, root_dir, addrtmp):
+                shutil.rmtree(addrtmp)
+                copied=False
+                warn("failed to copy log files from %s" %addr)
+                break
+            files = os.listdir(addrtmp)
+            for f in files:
+                os.rename("%s/%s" % (addrtmp,f), "%s/%s.%s" % (tmpdir, addr, f))
+            shutil.rmtree(addrtmp)
+        info("log files are copied to %s" % tmpdir)  
+    else:
+        log_and_exit("Either directory containing aggregated logs or ssh option should be set")
+

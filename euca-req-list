@@ -125,6 +125,7 @@ def get_ids(lines):
 
 def info(message):
     print "info: %s" % message
+
 def warn(message):
     print "warning: %s" % message
 
