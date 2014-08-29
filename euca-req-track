@@ -394,15 +394,19 @@ def make_table(logs):
         else:
             service = blank
 
-        if log.level() and len(log.level()) > 0:
-            level = log.level()
-        else:
-            level = blank
- 
         if log.location() and len(log.location()) > 0:
             location = log.location()
         else:
             location = blank
+
+        if log.level() and len(log.level()) > 0:
+            level = log.level()
+        else: # continuation
+            strdt = blank
+            host = blank
+            service = blank
+            location = blank
+            level = blank
 
         epoch = log.epoch() - min_epoch
 
@@ -428,7 +432,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog='euca-req-track', description='List Eucalyptus request history')
     parser.add_argument('id', nargs='?', action='store', help='request ID to track')
     parser.add_argument('-d', '--directory', nargs='+', help='directory containing the aggregated logs')
-    parser.add_argument('-t', '--log-type', nargs='?', action='store', default='euca', help='type of log files {euca, rsyslog}')
+    parser.add_argument('-t', '--log-type', nargs='?', action='store', default='euca', help='type of log files in the directory: {euca, rsyslog}')
     parser.add_argument('--ssh', action="store_true", help='ssh to remote components to aggregate logs')
     parser.add_argument('--no-delete', action="store_true", help='do not delete temp directory containing aggregated logs')
     args = parser.parse_args()
@@ -481,7 +485,7 @@ if __name__ == "__main__":
 
     log_lines = get_lines(reqid, logdir[0])
     if args.ssh and not args.no_delete: 
-        shutil.rmtree(logdir)
+        shutil.rmtree(logdir[0])
 
     logs = [] 
     for log_file in log_lines.keys():

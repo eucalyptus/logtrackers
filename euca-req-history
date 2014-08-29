@@ -134,13 +134,12 @@ def log_and_exit(message):
     exit(1)
 
 if __name__ == "__main__":
-    parser = ArgumentParser(prog='euca-req-list', description='List Eucalyptus request history')
+    parser = ArgumentParser(prog='euca-req-history', description='List Eucalyptus request history')
     parser.add_argument('account', nargs='?', action='store', help='account to search for the history')
     parser.add_argument('-u', '--user', action='store', default='admin', help='username to search for the history (default:admin)')
     parser.add_argument('-n', '--name', action='store', help='name of the request to search for (e.g., RunInstances, Describe)')
     parser.add_argument('-s', '--service', action='store', help='name of the service (compute, objectstorage, euare, autoscaling, loadbalancing, cloudwatch)')
     parser.add_argument('-l', '--limit', action='store', default=10, type=int, help='number of entries to return')
-    parser.add_argument('--show-id', action="store_true", help='print only the IDs after search')
     args = parser.parse_args()
 
     if not args.account or len(args.account) == 0:
@@ -192,10 +191,5 @@ if __name__ == "__main__":
     if not lines or len(lines) ==0:
         exit(0)
 
-    if args.show_id:
-        ids = get_ids(lines)
-        for id in ids:
-            print id 
-    else:
-        table = make_table(lines)
-        print tabulate(table, headers=["DATE", "SERVICE", "REQUEST", "ID"])
+    table = make_table(lines)
+    print tabulate(table, headers=["DATE", "SERVICE", "REQUEST", "ID"])
