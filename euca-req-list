@@ -135,16 +135,16 @@ def log_and_exit(message):
 
 if __name__ == "__main__":
     parser = ArgumentParser(prog='euca-req-list', description='List Eucalyptus request history')
-    parser.add_argument('account', nargs=1, help='account to search for the history')
-    parser.add_argument('-u', '--user', nargs=1, default=['admin'], help='username to search for the history (default:admin)')
-    parser.add_argument('-n', '--name', nargs=1, help='name of the request to search for (e.g., RunInstances, Describe)')
-    parser.add_argument('-s', '--service', nargs=1, help='name of the service (compute, objectstorage, euare, autoscaling, loadbalancing, cloudwatch)')
-    parser.add_argument('-l', '--limit', nargs=1, help='number of entries to return')
+    parser.add_argument('account', nargs='?', action='store', help='account to search for the history')
+    parser.add_argument('-u', '--user', action='store', default='admin', help='username to search for the history (default:admin)')
+    parser.add_argument('-n', '--name', action='store', help='name of the request to search for (e.g., RunInstances, Describe)')
+    parser.add_argument('-s', '--service', action='store', help='name of the service (compute, objectstorage, euare, autoscaling, loadbalancing, cloudwatch)')
+    parser.add_argument('-l', '--limit', action='store', default=10, type=int, help='number of entries to return')
     parser.add_argument('--show-id', action="store_true", help='print only the IDs after search')
     args = parser.parse_args()
 
-    if len(args.account) != 1:
-        log_and_exit("One account must be specified")
+    if not args.account or len(args.account) == 0:
+        log_and_exit("Account name must be specified")
 
     root_dir = os.environ['EUCALYPTUS']
     if not root_dir or len(root_dir) == 0:
@@ -165,28 +165,29 @@ if __name__ == "__main__":
     if not euca_version or len(euca_version) == 0:
         log_and_exit("Unable to call euca2ools; make sure euca2ools directory is in the PATH")
 
-    acct_id = account_id(args.account[0])
+    acct_id = account_id(args.account)
     if not acct_id or len(acct_id) == 0:
-        log_and_exit("Unable to find the account: %s" % args.account[0])
+        log_and_exit("Unable to find the account: %s" % args.account)
 
     user=None
     if args.user and len(args.user) > 0:
-        user = "user/%s" % args.user[0]
+        user = "user/%s" % args.user
 
     name=None
     if args.name and len(args.name) > 0:
-        name = args.name[0]
+        name = args.name
 
     service=None
     if args.service and len(args.service) > 0:
-        service = args.service[0]
+        service = args.service
 
     limit=None
     try:
-        if args.limit and len(args.limit) > 0:
-            limit = int(args.limit[0])
+        limit = args.limit
+        if limit <= 0:
+            raise Exception("invalid limit")
     except Exception, err:
-        log_and_exit("limit must be a number type")
+        log_and_exit("limit must be a number type larger than 0")
     lines = get_lines(log_files=files, account=acct_id, user=user, name=name, service=service, limit=limit)
     if not lines or len(lines) ==0:
         exit(0)

@@ -1,0 +1,4 @@
+Dependencies:
+
+tabulate
+dnspython

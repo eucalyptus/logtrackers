@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 from tabulate import tabulate
 import tempfile
 import shutil
+import dns.resolver
 
 def has_access_key():
     try:
@@ -117,6 +118,9 @@ def get_lines (request_id, location):
 
     return log_lines
 
+def order_logs (logs) :
+    return sorted(logs, key=lambda log:log.epoch()) 
+
 log_levels = ["DEBUG","INFO","ERROR","WARN","EXTREME"]
 def is_loglevel(text):
     return text in log_levels
@@ -156,19 +160,48 @@ def is_date_format(text):
     except Exception, err:
         return False
 
+# source: http://www.seanelavelle.com/2012/04/16/checking-for-a-valid-ip-in-python/
+def isIP(address):
+    #Takes a string and returns a status if it matches
+    #a ipv4 address
+    # 0 = false / 1 = true
+    ip = False
+    try:
+        if address[0].isdigit():
+            octets = address.split('.')
+            if len(octets) == 4:
+                ipAddr = "".join(octets)
+                if ipAddr.isdigit():
+                #correct format
+                    if (int(octets[0]) >= 0) and (int(octets[0]) <= 255):
+                        if (int(octets[1]) >= 0) and (int(octets[1]) <= 255):
+                            if (int(octets[2]) >= 0) and (int(octets[2]) <= 255):
+                                if (int(octets[3]) >= 0) and (int(octets[3]) <= 255):
+                                    ip = True
+    except IndexError:
+        pass
+    return ip
+
 def is_hostaddress(text):
     try:
         host = socket.gethostbyname(text)
-        return host is not None 
-    except Exception, err:
-        try:
-            addr = socket.gethostbyaddr(text)
-            return addr is not None
-        except Exception, err:
+        if host is None:
             return False
-    return False
+        if host != text: # text is dns name
+            answers = dns.resolver.query(text,'A') 
+            if answers and len(answers) > 0:
+                return True
+            else:
+                answers = dns.resolver.query(text, 'AAAA')
+                return answers and len(answers)>0
+        else:
+            return isIP(host)
+    except Exception, err:
+        return False
     
 white_list = ["|"]
+simple_service_name={'compute':'EC2', 'autoscaling':'AS', 'loadbalancing':'ELB','object-storage-gateways':'OSG',\
+                     'clusters':'CC','euare':'IAM','nodes':'NC','storage-controllers':'SC' }
 def parse_line (req_id, log_type, log_file, line, service_addr_map=None):
     if not line or len(line) ==0:
         return None
@@ -182,39 +215,46 @@ def parse_line (req_id, log_type, log_file, line, service_addr_map=None):
             idx_id = i
             break
     if idx_id < 0:
-        warning("unable to find the request ID from the log line: %s" % line)
+        warn("unable to find the request ID from the log line: %s" % line)
         return None
-
+    req_id = tokens[idx_id].replace("[","").replace("]","")
+    
     log_msg = " ".join(tokens[idx_id+1:])
     log_location =  None
     log_level = None
-    dt_time = None
-    dt_date = None
-    for i in reversed(range(0, idx_id))
+    log_time = None
+    log_date = None
+    for i in reversed(range(0, idx_id)):
         token = tokens[i]
         if token in white_list:
             continue
         elif not log_location: # the first text in the left of request ID is log location
             log_location = token
-        elif is_loglevel(token):
+        elif is_loglevel(token): # the next possible text is log level
             log_level = token 
-        elif not dt_time and is_time_format(token):
-            dt_time =token
-        elif not dt_date and is_date_format(token):
+        elif not log_time and is_time_format(token):
+            log_time =token
+        elif not log_date and is_date_format(token):
+            log_date = token
 
     log_host = None
     log_service = None
     if log_type == 'euca' and log_file: # when log_file begins with the ip address of log's source
         tokens = log_file.split('.')
-        if len(tokens) > 4 and is_host_address(".".join(tokens[0:4]))
-            log_host = ".".join(tokens[0:4])
+        if len(tokens) > 4:
+            ipaddr = ".".join(tokens[0:4])
+            if ipaddr.rfind("/")>=0:
+                ipaddr = ipaddr[ipaddr.rfind("/")+1:]
+            is_hostaddress(ipaddr)
+            log_host = ipaddr
     elif log_type == 'rsyslog':
-        for i in range(0, idx_id-1):
+        for i in range(0, idx_id):
             token = tokens[i]
             if token in white_list:
                 continue
-            elif not log_host and is_hostaddress(token)
+            elif not log_host and is_hostaddress(token):
                 log_host = socket.gethostbyname(token) #log_host should be in ip address
+                break
 
     if log_host:
         if log_file and log_file.endswith("cc-tracking.log"):
@@ -223,14 +263,22 @@ def parse_line (req_id, log_type, log_file, line, service_addr_map=None):
             log_service = "NC"
         else:
             for service in service_addr_map.keys():
-                if service in ["clusters","nodes"]:
-                    continue
+                #if service in ["clusters","nodes"]:
+                #    continue
                 addresses = service_addr_map[service]
                 if log_host in addresses:
                     if not log_service:
-                        log_service = service
+                        log_service = simple_service_name[service]
                     else:
-                        log_service = "/".join([log_service, service])
+                        log_service = "/".join([log_service, simple_service_name[service]])
+
+    log_dt = None
+    if log_date and log_time:
+        log_dt = datetime.strptime("%s %s" % (log_date, log_time), "%Y-%m-%d %H:%M:%S")
+    
+    log = EucaLog(request_id=req_id, log_dt=log_dt, log_host=log_host, log_service=log_service, \
+          log_level=log_level, log_location=log_location, log_msg=log_msg)
+    return log
 
 class EucaLog:
     def __init__(self, request_id=None, log_dt=None, log_host=None, log_service=None, log_level=None, log_location=None, log_msg=None):
@@ -242,47 +290,160 @@ class EucaLog:
         self._log_location = log_location
         self._log_msg = log_msg
 
+    def epoch_str(self):
+        if self._request_id and len(self._request_id.split('-')) == 2:
+            return self._request_id.split('-')[1]
+        else:
+            return None
+
+    def epoch(self):
+        if self._request_id:
+            tokens=self._request_id.split('-')
+            if len(tokens) != 2:
+                return None
+            epoch_str = tokens[1]
+            try:
+                return int(epoch_str, 16)
+            except Exception, err:
+                return None
+        else:
+            return None
+
+    def request_id(self):
+        return self._request_id
+
+    def with_request_id(self, request_id):
+        self._request_id = request_id
+        return self
+
     def message(self):
         return self._log_msg
+
+    def with_message(self, msg):
+        self._log_msg= msg
+        return self
     
     def service(self):
         return self._log_service
+
+    def with_service(self, service):
+        self._log_service = service
+        return self
   
-    def logtime(self):
+    def datetime(self):
         return self._log_dt
-  
+
+    def with_datetime(self, log_dt):
+        self._log_dt = log_dt
+        return self
+    
     def host(self):
         return self._log_host
+
+    def with_host(self, host):
+        self._log_host = host
+        return self
 
     def level(self):
         return self._log_level
 
+    def with_level(self, level):
+        self._log_level = level
+        return self 
+
     def location(self):
         return self._log_location
 
+    def with_location(self, location):
+        self._log_location = location
+        return self
+ 
     def __repr__(self):
-        return "%s | %s | %s" % (self._log_service, self._log_dt, self._log_msg)
+        return "%s | %s | %s | %s" % (self._log_host, self._log_service, self._log_dt, self._log_msg)
 
     def __str__(self):
         return self.__repr__()
 
+def make_table(logs):
+    '''
+    EPOCH DATE HOST SERVICE LEVEL LOCATION LOG
+    '''
+    rows = []
+    blank = "    "
+    msg_width=80
+
+    min_epoch = sys.maxint
+    for log in logs:
+        if log.epoch() < min_epoch:
+            min_epoch = log.epoch()
+ 
+    for log in logs:
+        if log.datetime() and len(str(log.datetime())) > 0 :
+            strdt = str(log.datetime())
+            strdt = strdt[5:] 
+        else:
+            strdt = blank
+
+        if log.host() and len(log.host()) > 0:
+            host = log.host()
+        else:
+            host = blank
+
+        if log.service() and len(log.service()) > 0:
+            service = log.service()
+        else:
+            service = blank
+
+        if log.level() and len(log.level()) > 0:
+            level = log.level()
+        else:
+            level = blank
+ 
+        if log.location() and len(log.location()) > 0:
+            location = log.location()
+        else:
+            location = blank
+
+        epoch = log.epoch() - min_epoch
+
+        msg = log.message()
+        if msg and len(msg) > 0:
+            msg_lines = []
+            for i in range(1, len(msg)):
+                if i % msg_width == 0:
+                    msg_lines.append(msg[len(msg_lines) * msg_width:i])
+            msg_lines.append(msg[len(msg_lines)*msg_width:])
+            row = [epoch, strdt, host, service, level, location, msg_lines[0]]
+            rows.append(row)
+            for i in range(1, len(msg_lines)):
+                row = [epoch, blank, blank, blank, blank, blank, msg_lines[i]]
+                rows.append(row)
+        else:
+            row = [epoch, strdt, host, service, level, location, blank]
+            rows.append(row)
+
+    return rows
+
 if __name__ == "__main__":
     parser = ArgumentParser(prog='euca-req-track', description='List Eucalyptus request history')
-    parser.add_argument('id', nargs=1, help='request ID to track')
-    parser.add_argument('-d', '--directory', nargs=1, help='directory containing the aggregated logs')
-    parser.add_argument('-t', '--log-type', nargs=1, default='euca', help='type of log files {euca, rsyslog}')
+    parser.add_argument('id', nargs='?', action='store', help='request ID to track')
+    parser.add_argument('-d', '--directory', nargs='+', help='directory containing the aggregated logs')
+    parser.add_argument('-t', '--log-type', nargs='?', action='store', default='euca', help='type of log files {euca, rsyslog}')
     parser.add_argument('--ssh', action="store_true", help='ssh to remote components to aggregate logs')
+    parser.add_argument('--no-delete', action="store_true", help='do not delete temp directory containing aggregated logs')
     args = parser.parse_args()
 
-    if len(args.id) != 1:
-        log_and_exit("Request ID must be specified")
+    if not args.id or len(args.id) == 0:
+        log_and_exit("request ID must be specified")
 
+    reqid = args.id
     root_dir = os.environ['EUCALYPTUS']
     if not root_dir or len(root_dir) == 0:
         root_dir = '/'
-    logdir = None
-    reqid = args.id[0]
-    logtype = args.log_type[0]
+    logdir = []
+    logtype = args.log_type
+    if not logtype or logtype not in ['euca','rsyslog']:
+        log_and_exit("Unknown log file type: %s" % logtype)
     services=['compute','autoscaling','loadbalancing','object-storage-gateways','clusters','euare','nodes','storage-controllers' ]
     if not (has_access_key() or has_secret_key()):
         log_and_exit("Access or secret key is not found; make sure eucarc is sourced")
@@ -291,16 +452,18 @@ if __name__ == "__main__":
     if not euca_version or len(euca_version) == 0:
         log_and_exit("Unable to call euca2ools; make sure euca2ools directory is in the PATH")
     addresses = {}
+    addresses_set = set()
     for service in services:
         addresses[service] = []
         for addr in get_service_address(service):
             addresses[service].append(addr)
+            addresses_set.add(addr)
     if args.directory and len(args.directory) > 0:
-        logdir = args.directory[0]
+        logdir.extend(args.directory)
     elif args.ssh:
         copied=True
         tmpdir = tempfile.mkdtemp() + "/"
-        for svc, addr in addresses.iteritems():
+        for addr in addresses_set:
             addrtmp = tempfile.mkdtemp() + "/"
             if not copy_log_files(addr, root_dir, addrtmp):
                 shutil.rmtree(addrtmp)
@@ -312,12 +475,19 @@ if __name__ == "__main__":
                 os.rename("%s/%s" % (addrtmp,f), "%s/%s.%s" % (tmpdir, addr, f))
             shutil.rmtree(addrtmp)
         info("log files are copied to %s" % tmpdir)  
-        logdir = tmpdir
+        logdir.append(tmpdir)
     else:
         log_and_exit("Either directory containing aggregated logs or ssh option should be set")
 
-    log_lines = get_lines(reqid, logdir)
-    
+    log_lines = get_lines(reqid, logdir[0])
+    if args.ssh and not args.no_delete: 
+        shutil.rmtree(logdir)
+
+    logs = [] 
     for log_file in log_lines.keys():
         for line in log_lines[log_file]:
-            log = parse_line(reqid, log_type, log_file, line, addresses)
+            log = parse_line(reqid, logtype, log_file, line, addresses)
+            logs.append(log)
+    logs = order_logs(logs)
+    table = make_table(logs)
+    print tabulate(table, headers=['ORDER', 'DATE', 'HOST', 'SERVICE', 'LEVEL', 'LOCATION', 'LOG'], tablefmt='rst', stralign='left')
