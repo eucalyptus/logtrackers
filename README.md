@@ -2,7 +2,7 @@
  EUCALYPTUS LOG TRACKER
 ========================
 
-* WHAT IS THIS?  
+## WHAT IS THIS?  
 
 Since Eucalyptus is a distributed Cloud platform, it is often challenging to 
 track and troubleshoot distributed computations that is the result of an 
@@ -14,20 +14,24 @@ To ease the pain, Eucalyptus 4.1 introduces a core support and tools for trackin
 distributed computations that is the result of a Cloud user's request. 
 
 
-* EXAMPLE USAGE
+## EXAMPLE USAGE
 
-euca-req-history eucalyptus
- : Print out history of requests by account "eucalyptus". From the history, request-id is used below.  
+`euca-req-history eucalyptus`
 
-euca-req-track --ssh 95e9933e
- : Ssh into distributed Eucalyptus services and gather all the logs related to the request-id.  
+ *Print out the history of requests by account "eucalyptus". From the history, request-id is used below.*
 
-euca-req-track -d /var/log/eucalyptus -t rsyslog 95e9933e
- : If log files are being aggregated with rsyslog, the tool gathers the logs from the directory
+`euca-req-track --ssh 95e9933e`
+ 
+ *Ssh into the distributed Eucalyptus services and gather all the logs related to the request-id.*
+
+`euca-req-track -d /var/log/eucalyptus -t rsyslog 95e9933e`
+
+ *If the log files are being aggregated with rsyslog, the tool gathers the logs from the directory.*
      
  
-* DEPENDENCIES
+## DEPENDENCIES
 
   tabulate
   dnspython
-  For Centos, run "yum install python-pip", followed by "pip install tabulate dnspython"
+  
+  For Centos, run `yum install python-pip`, followed by `pip install tabulate dnspython`
