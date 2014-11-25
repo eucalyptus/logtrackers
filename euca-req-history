@@ -145,8 +145,11 @@ if __name__ == "__main__":
     if not args.account or len(args.account) == 0:
         log_and_exit("Account name must be specified")
 
-    root_dir = os.environ['EUCALYPTUS']
-    if not root_dir or len(root_dir) == 0:
+    try:
+        root_dir = os.environ['EUCALYPTUS']
+        if not root_dir or len(root_dir) == 0:
+            root_dir = '/'
+    except Exception, err:
         root_dir = '/'
 
     if not log_dir(root_dir):

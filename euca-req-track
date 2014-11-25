@@ -68,9 +68,9 @@ def get_service_address(service):
     try:
         output = cmd_output([cmdline]) 
         if not output or len(output) == 0:
-            log_and_exit("%s failed" % cmdline)
+            log_and_exit("%s failed; make sure command line is in PATH" % cmdline)
     except Exception, err:
-            log_and_exit("%s failed" % cmdline)
+            log_and_exit("%s failed; make sure command line is in PATH" % cmdline)
     lines = output.split('\n')
     addresses = []
     for line in lines:
@@ -441,9 +441,16 @@ if __name__ == "__main__":
         log_and_exit("request ID must be specified")
 
     reqid = args.id
-    root_dir = os.environ['EUCALYPTUS']
-    if not root_dir or len(root_dir) == 0:
+
+    try:
+        root_dir = os.environ['EUCALYPTUS']
+        if not root_dir or len(root_dir) == 0:
+            root_dir = '/'
+    except Exception, err:
         root_dir = '/'
+
+    info('Make sure Eucalyptus logs are in %s/var/log/eucalyptus/ of euca hosts' % root_dir)
+
     logdir = []
     logtype = args.log_type
     if not logtype or logtype not in ['euca','rsyslog']:
