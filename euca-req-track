@@ -432,7 +432,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(prog='euca-req-track', description='List Eucalyptus request history')
     parser.add_argument('id', nargs='?', action='store', help='request ID to track')
     parser.add_argument('-d', '--directory', nargs='+', help='directory containing the aggregated logs')
-    parser.add_argument('-t', '--log-type', nargs='?', action='store', default='euca', help='type of log files in the directory: {euca, rsyslog}')
+    parser.add_argument('-t', '--log-type', nargs='?', action='store', default='rsyslog', help='type of log files in the directory: {euca, rsyslog}')
     parser.add_argument('--ssh', action="store_true", help='ssh to remote components to aggregate logs')
     parser.add_argument('--no-delete', action="store_true", help='do not delete temp directory containing aggregated logs')
     args = parser.parse_args()
@@ -453,8 +453,10 @@ if __name__ == "__main__":
 
     logdir = []
     logtype = args.log_type
+    if args.ssh: # when in ssh mode, the type of aggregated log files is always euca
+        logtype = 'euca'
     if not logtype or logtype not in ['euca','rsyslog']:
-        log_and_exit("Unknown log file type: %s" % logtype)
+        log_and_exit("Unknown log file type: %s (must be euca or rsyslog)" % logtype)
     services=['compute','autoscaling','loadbalancing','object-storage-gateways','clusters','euare','nodes','storage-controllers' ]
     if not (has_access_key() or has_secret_key()):
         log_and_exit("Access or secret key is not found; make sure eucarc is sourced")
