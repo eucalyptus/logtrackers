@@ -94,8 +94,8 @@ def get_lines(log_files=[], account=None, user=None, name=None, service=None, li
             break
     return lines
 
-def make_table(lines):
-    #headers=["DATE", "SERVICE", "REQUEST", "ID"]
+def make_table(lines, user):
+    #headers=["DATE", "SERVICE", "USER", "REQUEST", "ID"]
     #rows = [ headers ]
     rows = []
 
@@ -106,6 +106,7 @@ def make_table(lines):
         row.append(dt_str)
         svc = tokens[9]
         row.append(svc)
+        row.append(user)
         req = tokens[10]
         req = req.replace("Type","")
         row.append(req)
@@ -193,6 +194,6 @@ if __name__ == "__main__":
     lines = get_lines(log_files=files, account=acct_id, user=user, name=name, service=service, limit=limit)
     if not lines or len(lines) ==0:
         exit(0)
-
-    table = make_table(lines)
-    print tabulate(table, headers=["DATE", "SERVICE", "REQUEST", "ID"])
+    username = "%s/%s" % (args.account, args.user)
+    table = make_table(lines, username)
+    print tabulate(table, headers=["DATE", "SERVICE", "USER", "REQUEST", "ID"])
