@@ -2,6 +2,9 @@
  EUCALYPTUS LOG TRACKER
 ========================
 
+## WIKI
+See why LogTracker is useful: https://github.com/eucalyptus/logtrackers/wiki
+
 ## WHAT IS THIS?  
 
 Since Eucalyptus is a distributed Cloud platform, it is often challenging to 
