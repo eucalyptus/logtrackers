@@ -201,7 +201,7 @@ def is_hostaddress(text):
     
 white_list = ["|"]
 simple_service_name={'compute':'EC2', 'autoscaling':'AS', 'loadbalancing':'ELB','object-storage-gateways':'OSG',\
-                     'clusters':'CC','euare':'IAM','nodes':'NC','storage-controllers':'SC' }
+                     'clusters':'CC','euare':'IAM','nodes':'NC','storage-controllers':'SC', 'clouds':'CLC' }
 def parse_line (req_id, log_type, log_file, line, service_addr_map=None):
     if not line or len(line) ==0:
         return None
@@ -457,7 +457,7 @@ if __name__ == "__main__":
         logtype = 'euca'
     if not logtype or logtype not in ['euca','rsyslog']:
         log_and_exit("Unknown log file type: %s (must be euca or rsyslog)" % logtype)
-    services=['compute','autoscaling','loadbalancing','object-storage-gateways','clusters','euare','nodes','storage-controllers' ]
+    services=['compute','autoscaling','loadbalancing','object-storage-gateways','clusters','euare','nodes','storage-controllers', 'clouds' ]
     if not (has_access_key() or has_secret_key()):
         log_and_exit("Access or secret key is not found; make sure eucarc is sourced")
 
